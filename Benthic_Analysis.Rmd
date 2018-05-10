@@ -1,0 +1,400 @@
+---
+title: Evaluating the effects of space and time on sponge and coral communities in
+  the British Virgin Islands
+author: "Nicole Keefner"
+date: "May 10, 2018"
+output:
+  html_document: default
+  pdf_document: default
+indent: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r library, include=FALSE}
+library(ggplot2)
+library(tidyverse)
+library(AICcmodavg)
+require(gridExtra)
+```
+
+```{r data, include=FALSE}
+## Read in Data
+# Note that the data is formatted in wide form for both datasets
+# Import original sponge dataset
+Sponges.start <- read.csv("ORIGINAL_Guana_Sponge_data_for_analysis.csv", header=T)
+# Only select rows and columns for which there are values entered (Sponges.start has extraneous rows and columns)
+Sponges.original <- Sponges.start[1:557,1:65]
+# Put datast into long form
+# key = title of new column, value = numbers being moved around because of the key, 
+# ":" specifies which columns should be included in key
+Sponges.long <- Sponges.original %>%
+  gather(key = "Taxonomic_Group", value = "Count", 
+         Agelas.clathrodes..Agelas.citrina.or.Clathria.faviformis:Black..spiny..purple.exudate.but.not.slimy)
+# Double-check
+summary(Sponges.long)
+# Taxonomic_Group is being read as a character, but it should be a factor
+# overwrite column so it is a factor
+Sponges.long$Taxonomic_Group <- as.factor(Sponges.long$Taxonomic_Group)
+# Over the years, people have entered in sites by different names. The following code
+# corrects these entry mistakes, so that only 3 site names are retained.
+temp = which(Sponges.long$Site == "Bigelow-South")
+Sponges.long$Site[temp] = "Bigelow"
+temp = which(Sponges.long$Site == "Long Point")
+Sponges.long$Site[temp] = "Muskmelon"
+temp = which(Sponges.long$Site == "Monkey Pt area")
+Sponges.long$Site[temp] = "Monkey Pt"
+temp = which(Sponges.long$Site == "Pelican")
+Sponges.long$Site[temp] = "Pelican Ghut"
+temp = which(Sponges.long$Site == "White Bay-alt")
+Sponges.long$Site[temp] = "White Bay"
+temp = which(Sponges.long$Site == "White Bay E")
+Sponges.long$Site[temp] = "White Bay"
+# Take this dataset and calculate the mean count for each site for each year 
+# (note that some sites have more transects than others, so sampling effort varies)
+Sponges.long.means <- Sponges.long %>% group_by(Year, Site) %>% summarize(Total_Mean_Count = mean(Count))
+# Overwrite this dataset to remove NAs
+Sponges.long.means <- Sponges.long.means %>% filter(!is.na(Total_Mean_Count))
+# IF I WANT A DATASET WITHOUT ZEROES
+Sponges.long.nozero <- Sponges.long %>% filter(Sponges.long$Count != 0)
+
+# Import cleaned original dataset of corals and benthic means
+Corals.original <- read.csv(file = "benthicmeans_clean_all.csv", header = T)
+# Subset data to only include live hard corals and put into long form
+Corals.long <- subset(Corals.original, select=c(Site:po.massive)) %>%
+  gather(key = "Taxonomic_Group", value = "Mean_Percent_Cover", 
+         acpa:po.massive)
+# Double-check
+summary(Corals.long)
+# Taxonomic_Group is being read as a character, but it should be a factor
+# overwrite column so it is a factor
+Corals.long$Taxonomic_Group <- as.factor(Corals.long$Taxonomic_Group)
+# Mean percent covers of less than 0 should be read in as zeroes
+#######QUESTION FOR GRAHAM - WHY DO WE GET NEGATIVES?
+Corals.long$Mean_Percent_Cover[which(Corals.long$Mean_Percent_Cover < 0)] <- 0
+# Take this dataset and calculate the mean % cover for each site for each year
+Corals.long.means <- Corals.long %>% group_by(Year, Site) %>% summarize(Total_Mean_Cover = mean(Mean_Percent_Cover))  
+# Overwrite this dataset to remove NAs
+Corals.long.means <- Corals.long.means %>% filter(!is.na(Total_Mean_Cover))
+```
+
+```{r coral_analysis, include=FALSE}
+## Coral Analysis
+
+# Null model
+model.0 = lm(Total_Mean_Cover~1, data = Corals.long.means)
+summary(model.0)
+
+# Year model
+model.year = lm(Total_Mean_Cover~Year, data = Corals.long.means)
+summary(model.year)
+
+# Site model
+model.site = lm(Total_Mean_Cover~Site, data = Corals.long.means)
+summary(model.site)
+
+# Site+Year model
+model.site.year = lm(Total_Mean_Cover~Site+Year, data = Corals.long.means)
+summary(model.site.year)
+
+# Site*Year model
+model.siteyear = lm(Total_Mean_Cover~Site*Year, data = Corals.long.means)
+summary(model.siteyear)
+
+# Consolidate all models into a list
+models_coral <- list(model.0, model.year, model.site, model.site.year, model.siteyear)
+
+# Add model names in the order they are listed in models_coral
+models_coral_names <- c("Null Model", "Year Model", "Site Model", "Site+Year Model", "Site*Year Model")
+
+# Each model produces predictions of the probability of detection for each observation and covariate value
+all.predictions=cbind(predict(model.0,type="response"),
+                      predict(model.year,type="response"),
+                      predict(model.site,type="response"),
+                      predict(model.site.year,type="response"),
+                      predict(model.siteyear,type="response"))
+# Name the prediction columns by model name
+colnames(all.predictions) <- models_coral_names
+head(all.predictions)
+# Add predictions to dataset
+Corals.long.means.pred <- data.frame(Corals.long.means, all.predictions)
+```
+
+```{r sponge_analysis, include=FALSE}
+## Sponge Analysis
+
+# Null model
+smodel.0 = lm(Total_Mean_Count~1, data = Sponges.long.means)
+summary(smodel.0)
+
+# Year model
+smodel.year = lm(Total_Mean_Count~Year, data = Sponges.long.means)
+summary(smodel.year)
+
+# Site model
+smodel.site = lm(Total_Mean_Count~Site, data = Sponges.long.means)
+summary(smodel.site)
+
+# Site+Year model
+smodel.site.year = lm(Total_Mean_Count~Site+Year, data = Sponges.long.means)
+summary(smodel.site.year)
+
+# Site*Year model
+smodel.siteyear = lm(Total_Mean_Count~Site*Year, data = Sponges.long.means)
+summary(smodel.siteyear)
+
+# Consolidate all models into a list
+models_sponge <- list(smodel.0, smodel.year, smodel.site, smodel.site.year, smodel.siteyear)
+
+# Add model names in the order they are listed in models_sponge
+models_sponge_names <- c("Null Model", "Year Model", "Site Model", "Site+Year Model", "Site*Year Model")
+
+# Each model produces predictions of the probability of detection for each observation and covariate value
+all.predictions.s=cbind(predict(smodel.0,type="response"),
+                        predict(smodel.year,type="response"),
+                        predict(smodel.site,type="response"),
+                        predict(smodel.site.year,type="response"),
+                        predict(smodel.siteyear,type="response"))
+# Name the prediction columns by model name
+colnames(all.predictions.s) <- models_sponge_names
+head(all.predictions.s)
+# Add predictions to dataset
+Sponges.long.means.pred <- data.frame(Sponges.long.means, all.predictions.s)
+```
+
+```{r summary_plots, include=FALSE}
+## Summary Plots
+# Take the average count/cover for each year regardless of site
+Sponges.long.yearmeans <- Sponges.long.means.pred %>% group_by(Year) %>% summarize(Total_Mean_Count = mean(Total_Mean_Count))
+Corals.long.yearmeans <- Corals.long.means.pred %>% group_by(Year) %>% summarize(Total_Mean_Cover = mean(Total_Mean_Cover))
+# Scatterplots of count/cover for each year
+figure1_top <- ggplot(data = Sponges.long.yearmeans, aes(x = Year, y = Total_Mean_Count)) + 
+  geom_point()+ geom_line() +
+  scale_y_continuous("Total Mean Sponge Counts")
+figure1_bottom <- ggplot(data = Corals.long.yearmeans, aes(x = Year, y = Total_Mean_Cover)) + 
+  geom_point()+ geom_line() +
+  scale_y_continuous("Total Mean Percent Coral Cover")
+# Boxplots of count/cover for each site
+figure2_top <- ggplot(data = Sponges.long.means.pred, aes(x = Site, y = Total_Mean_Count)) + 
+  geom_boxplot() +
+  scale_y_continuous("Total Mean Sponge Counts")
+figure2_bottom <- ggplot(data = Corals.long.means.pred, aes(x = Site, y = Total_Mean_Cover)) + 
+  geom_boxplot() +
+  scale_y_continuous("Total Mean Percent Coral Cover")
+```
+
+## Abstract
+
+Coral reef communities are threatened by anthropogenic disturbances that vary on spatial and temporal scales. As the foundation group for these communities, corals have been widely studied, but the spatial and temporal patterns between corals and sponges, a coexisting foundation group, are not well understood. This study investigates changes in percent cover of coral and counts of sponges over time and across sites. Linear regression models were compared using AICc for both sponges and corals, separately. Models that considered an interactive effect between site and year were the most parsimonious and accounted for a large percentage of variation in the data. Because sponges and corals varied differently over space and time, researchers should be cautious when using the dynamics of one foundation group as a proxy for overall community dynamics and consider using multiple groups, if possible.
+
+Keywords: Scleractinia; coral; sponge; community dynamics; foundation species; coral reef; biodiversity loss; Caribbean.
+
+## Introduction
+
+Ecological communities are changing and there has been an increase in rates of biodiversity loss (Staudinger et al., 2013; Stork, 2010). Declines in biodiversity have been associated with higher levels of disturbance that affect community dynamics and species extinction (Svensson et al., 2007). A disturbance is any temporally discrete event that disrupts inter- and intrarelationships by changing resource availability (Svensson et al., 2007). Historically, the intermediate disturbance hypothesis has been used to describe how competition and intermediate natural disturbances, such as hurricanes, maintain high diversity in certain ecosystems such as tropical forests and coral reefs (Connell, 1978). This high diversity response to disturbance assumes coral reef communities can recover, but there are now additional anthropogenic factors that have compromised this ability to recover (Hughes et al., 2017). Coral reef communities are threatened by anthropogenic disturbances that vary on spatial and temporal scales, such as dredging, ocean acidification, sedimentation, overfishing, and persistent high temperatures. Some of these disturbances have been found to effect richness, abundance, and diversity of reef organisms (Habibi, Setiasih, & Sartin, 2007; Nelson et al., 2016; Stubler, Duckworth, & Peterson, 2015; J. L. Wulff, 2006).
+
+Because communities are webs of interactions, the consequences of a disturbance can be complicated and unpredictable. Foundation species play important roles in establishing ecosystems and, in several marine ecosystems, have been attributed with maintaining biodiversity (Angelini, Altieri, Silliman, & Bertness, 2018). One approach to study these consequences is to focus on foundation species- organisms that take up much of an ecosystem's surface area or volume and promote biodiversity through various functional roles (Angelini et al., 2018). When ecosystems are threatened by disturbance, it is intuitive to study the impacts of these disturbances on the foundation species. California mussels and seagrasses are examples of foundation species threatened by disturbances (Gaylord et al., 2011; Thomson, Burkholder, & Heithaus, 2015).
+
+With increasing disturbance rates and declining biodiversity, much attention has been given to monitoring coral reefs around the world. Because corals provide the foundation for these ecosystems, many studies use coral diversity as a proxy for overall reef diversity (Darling et al., 2017; Stella, Pratchett, Hutchings, & Jones, 2011). It has also been suggested that sponges may be a coexisting foundational group for coral reefs (Angelini et al., 2018).
+
+Several studies have found that coral diversity is positively correlated with fish diversity (Darling et al., 2017). Relationships between corals and other groups have been studied (Stella et al., 2011). However, there is still a lack of long-term studies of the relationships between coral diversity and diversity of other taxonomic groups. In particular, there has been a call for studies that compare coral diversity and sponge diversity because of their functional similarities, the lack of long-term studies that consider sponges, and the potential for sponges to outcompete corals when disturbance levels are higher (J. Wulff, 2001; J. L. Wulff, 2006).
+
+This study investigates how percent cover of coral and counts of sponges change over time. Because coral reef communities differ between reefs, this study also investigates how these variables vary across sites.
+
+## Methods
+
+### Data Collection
+
+At 8 different locations around Guana Head Island in the British Virgin Islands, Forrester et al. (2015) recorded percent cover for 27 groups of corals at varying levels of taxonomic resolution. They used the linear point-intercept method and recorded the substrate or coral group every 0.25 m for 3 30-m transects at each site between June and August from 1992-2016. These point observations were converted to surface area estimates of percent cover (Ohlhorst, Liddell, Taylor, & Taylor, 1988). At the same sites, they also recorded counts for 58 groups of sponges at varying levels of taxonomic resolution. For this, they used the line intercept method for 3 30-m transects between June and August from 1993-1995, 2000-2003, and 2005-2016 (Forrester et al., 2015). For both datasets, transects were set up at a depth of approximately 10-m. In 2011, transects for the sponge counts were conducted by two observers (E. MacLean and L. Jarecki), but in all other years, there was one observer (L. Jarecki). A percent cover of zero implies there were no individuals of that coral group represented on that transect. All corals included in the analysis are live hard corals in the order Scleractinia. The sites were all fringing reefs and the only apparent difference among sites was the increased exposure to waves at the two sites to the north of the island. There are no negative values and no missing values for these datasets, but not all sites were surveyed in a given year. Due to recent changes in phylogenetics that have resulted in taxonomic uncertainty at finer scales, this study considers total coral as all live Scleractinian corals and total sponges as all live sponges.
+
+### Models
+
+In order to understand how each group of organisms responds to differences in time and space, corals and sponges were considered independently of each other, but the analyses were identical. Linear regression was used to investigate changes in total mean percent cover of coral and changes in total mean counts of sponges. The null hypothesis was that the slope of the linear regression model does not differ significantly from zero. Therefore, the alternate hypothesis was that the slope of the linear regression model does differ significantly from zero. Null (intercept-only) models were compared with models that incorporate terms for time (in years) and site. These models were compared using AIC weights and models within 2.0 AIC scores of each other were interpreted as competitive with each other. The following five models were considered for corals and sponges separately.
+
+Model 1 (null):  $\mu$= $\beta_{0}$     y ~N($\mu$,$\sigma^{2}$)              
+
+Model 2 (site):  $\mu$= $\beta_{0}$+ $\beta_{1}$ CrabCove+ $\beta_{2}$ GrandGhut+ $\beta_{3}$ GuanaHead+ $\beta_{4}$ MonkeyPt+ $\beta_{5}$ Muskmelon+ $\beta_{6}$ PelicanGhut+ $\beta_{7}$ WhiteBay	  y ~N($\mu$,$\sigma^{2}$)
+
+Model 3 (year):  $\mu$= $\beta_{0}$+ $\beta_{1}$ Year     y ~N($\mu$,$\sigma^{2}$)              
+
+Model 4 (site+year):  $\mu$= $\beta_{0}$+$\beta_{1}$ CrabCove+ $\beta_{2}$ GrandGhut+ $\beta_{3}$ GuanaHead+ $\beta_{4}$ MonkeyPt+ $\beta_{5}$ Muskmelon + $\beta_{6}$ PelicanGhut+ $\beta_{7}$ WhiteBay+ $\beta_{8}$ Year       y ~N($\mu$,$\sigma^{2}$)
+
+Model 5 (site x year):  $\mu$= $\beta_{0}$+$\beta_{1}$ CrabCove+ $\beta_{2}$ GrandGhut+ $\beta_{3}$ GuanaHead+ $\beta_{4}$ MonkeyPt+ $\beta_{5}$ Muskmelon+ $\beta_{6}$ PelicanGhut+ $\beta_{7}$ WhiteBay+ $\beta_{8}$ Year+ $\beta_{9}$ (CrabCove ×Year)+ $\beta_{10}$ (GrandGhut ×Year)+ $\beta_{11}$ (GuanaHead ×Year)+ $\beta_{12}$ (MonkeyPt ×Year)+ $\beta_{13}$ (Muskmelon ×Year)+ $\beta_{14}$ (PelicanGhut ×Year)+ $\beta_{15}$ (WhiteBay ×Year)       y ~N($\mu$,$\sigma^{2}$)
+
+Multiple R-squared values will be used to describe how well a given model explains variation in the data. It is the measure of variation in the dataset that is explained by the independent variable. A multiple R-squared value of 1 means that the model explains all of the variation in the data and a multiple R-squared value of 0 means that the model doesn't explain any of the variation in the data.
+
+## Results
+
+I found differences in sponge counts and percent cover of corals over time (Figure 1) and space (Figure 2).
+
+The most complex model for both analyses was the Site x Year Model K= `r length(model.siteyear$coefficients)+1`. Model 5 (site x year) is the most parsimonious model for total mean percent cover of coral because it has the lowest AICc score and is weighted the most (Table 1). Similarly, the Site x Year Model was the most parsimonious model for total mean count of sponges with the lowest AICc score and the highest weight (Table 2).
+
+### Corals
+
+$\beta_{0}$ in model 5 for corals, the most parsimonious model, represents Bigelow as the intercept of the model and I fail to reject the null that this is not significantly different from zero (Table 3). $\beta_{1}$-$\beta_{7}$ represent the slopes between Bigelow and the other sites and I reject the null that this slope is zero for Crab Cove, Guana Head, Muskmelon, and White Bay (Table 3), but fail to reject this null for Grand Ghut, Monkey Pt, and Pelican Ghut (Table 3). $\beta_{8}$ represents the slope for the year for Bigelow and I fail to reject the null that the slope is zero (Table 3). $\beta_{9}$-$\beta_{15}$ represent the slopes for the site by year. I reject the null that this slope is zero for Crab Cove, Guana Head, Muskmelon, and White Bay (Table 3), but fail to reject this null for Grand Ghut, Monkey Pt, and Pelican Ghut (Table 3). In summary, this means that percent cover of coral varies by site and year (Figure 3).
+
+### Sponges
+
+$\beta_{0}$ in model 5 for sponges, the most parsimonious model, represents Bigelow as the intercept of the model and I reject the null that this is not significantly different from zero and conclude that it is not zero (Table 4). $\beta_{1}$-$\beta_{7}$ represent the slopes between Bigelow and the other sites and I reject the null that this slope is zero for Crab Cove and White Bay (Table 4), but fail to reject this null for Grand Ghut, Guana Head, Monkey Pt, Muskmelon, and Pelican Ghut (Table 4). $\beta_{8}$ represents the slope for the year for Bigelow and I reject the null that the slope is zero (Table 4). $\beta_{9}$-$\beta_{15}$ represent the slopes for the site by year. I reject the null that this slope is zero for Crab Cove and White Bay (Table 4), but fail to reject this null for Grand Ghut, Guana Head, Monkey Pt, Muskmelon, and Pelican Ghut (Table 4). In summary, this means that counts of sponges vary by site and year (Figure 4).
+
+Because the estimate for year is significant for the sponges and not the corals, this suggests that the time component (in years) is more important for sponges than corals. It is also interesting to note that sponge counts decline over time at White Bay and Crab Cove compared to the other sites for which this variable inclined (Figure 4).
+
+The Site x Year Model accounted for `r (summary(model.siteyear)$r.squared)*100`% of the variation in the coral data and `r (summary(smodel.siteyear)$r.squared)*100`% of the variation in the sponge data (Table 3; Table 4).
+
+## Discussion
+
+Percent cover for corals and counts of sponges both varied by site and by year, confirming the predictions that both spatial and temporal variables need to be considered when comparing these groups. This supports the understanding that disturbances, both natural and anthropogenic, are different for different sites (Nelson et al., 2016; Stubler et al., 2015) and over time (Habibi et al., 2007). In general, model predictions suggested a general decline in percent cover of coral over time for all sites and a general increase in counts of sponges over time for most sites, except Crab Cove and White Bay. This study grouped corals and sponges together, assuming all coral and all sponge populations react similarly to disturbance. However, future studies should consider related functional groups within corals and sponges separately to determine if disturbances have affected a particular functional group more dramatically. 
+
+This study highlights the importance of comparing coexisting foundational groups within a community. In this case, sponges and corals both varied over space and time, but how they varied differed. Researchers should be cautious when using the dynamics of one foundation group as a proxy for overall community dynamics as has been done in the past (Adam et al., 2014). Instead, multiple groups should be considered, if possible, to get a better idea of the condition of the overall ecosystem (Angelini et al., 2018). 
+
+## References
+
+Adam, T. C., Brooks, A. J., Holbrook, S. J., Schmitt, R. J., Washburn, L., & Bernardi, G. (2014). How will coral reef fish communities respond to climate-driven disturbances? Insight from landscape-scale perturbations. Oecologia, 176, 285-296. https://doi.org/10.1007/s00442-014-3011-x
+
+Angelini, C., Altieri, A. H., Silliman, B. R., & Bertness, M. D. (2018). Interactions among Foundation Species and Their Consequences for Community Organization , Biodiversity , and Conservation, 61(10). https://doi.org/10.1525/bio.2011.61.10.8
+
+Connell, J. H. (1978). Diversity in tropical rain forests and coral reefs. Science, 199(4335), 1302-1310.
+
+Darling, E. S., Graham, N. A. J., Januchowski-Hartley, F. A., Nash, K. L., Pratchett, M. S., & Wilson, S. K. (2017). Relationships between structural complexity, coral traits, and reef fish assemblages. Coral Reefs, 36, 561-575. https://doi.org/10.1007/s00338-017-1539-z
+
+Forrester, G., Baily, P., Conetta, D., Forrester, L., Kintzing, E., & Jarecki, L. (2015). Comparing monitoring data collected by volunteers and professionals shows that citizen scientists can detect long-term change on coral reefs. Journal for Nature Conservation, 24, 1-9. https://doi.org/10.1016/j.jnc.2015.01.002
+
+Gaylord, B., Hill, T. M., Sanford, E., Lenz, E. A., Jacobs, L. A., Sato, K. N., . Hettinger, A. (2011). Functional impacts of ocean acidification in an ecologically critical foundation species, 2586-2594. https://doi.org/10.1242/jeb.055939
+
+Habibi, A., Setiasih, N., & Sartin, J. (2007). A decade of reef check monitoring: Indonesian coral reefs, condition and trends.
+
+Hughes, T. P., Kerry, J. T., Álvarez-Noriega, M., Álvarez-Romero, J. G., Anderson, K. D., Baird, A. H., . Wilson, S. K. (2017). Global warming and recurrent mass bleaching of corals. Nature, 543(7645), 373-377. https://doi.org/10.1038/nature21707
+
+Nelson, D. S., McManus, J., Richmond, R. H., King Jr., D. B., Gailani, J. Z., Lackey, T. C., & Bryant, D. (2016). Predicting dredging-associated effects to coral reefs in Apra Harbor, Guam - Part 2: Potential coral effects. Journal of Environmental Management, 168, 111-122. https://doi.org/10.1016/j.jenvman.2015.10.025
+
+Ohlhorst, S. L., Liddell, W. D., Taylor, R. J., & Taylor, J. M. (1988). EVALUATION OF REEF CENSUS TECHNIQUES. Proceedings of the 6th International Coral Reef Symposium, Australia, 2, 319-324.
+
+Staudinger, M. D., Carter, S. L., Cross, M. S., Dubois, N. S., Duffy, J. E., Enquist, C., . Turner, W. (2013). Biodiversity in a changing climate: A synthesis of current and projected trends in the US in a nutshell. Frontiers in Ecology and the Environment, 11(9), 465-473. https://doi.org/10.1890/120272
+
+Stella, J. S., Pratchett, M. S., Hutchings, P. A., & Jones, G. P. (2011). Coral-associated invertebrates: Diversity , ecological importance and vulnerability to disturbance, 43-104.
+
+Stork, N. E. (2010). Re-assessing current extinction rates. Biodiversity and Conservation, 19(2), 357-371. https://doi.org/10.1007/s10531-009-9761-9
+
+Stubler, A. D., Duckworth, A. R., & Peterson, B. J. (2015). The effects of coastal development on sponge abundance, diversity, and community composition on Jamaican coral reefs. Marine Pollution Bulletin, 96, 261-270. https://doi.org/10.1016/j.marpolbul.2015.05.014
+
+Svensson, J. R., Lindegarth, M., Siccha, M., Lenz, M., Molis, M., Wahl, M., & Pavia, H. (2007). Maximum species richness at intermediate frequencies of disturbance: Consistency among levels of productivity. Ecology, 88(4), 830-838. https://doi.org/10.1890/06-0976
+
+Thomson, J. A., Burkholder, D. A., & Heithaus, M. R. (2015). Extreme temperatures , foundation species , and abrupt ecosystem change: an example from an iconic seagrass ecosystem, 1463-1474. https://doi.org/10.1111/gcb.12694
+
+Wulff, J. (2001). Assessing and monitoring coral reef sponges: Why and how? Bulletin of Marine Science, 69(2), 831-846.
+
+Wulff, J. L. (2006). Rapid diversity and abundance decline in a Caribbean coral reef sponge community. Biological Conservation, 127, 167-176. https://doi.org/10.1016/j.biocon.2005.08.007
+
+## List of Tables
+
+Table 1. AICc results for 5 models of mean percent cover of coral near Guana Island, British Virgin Islands where K is the number of parameters in the model.
+```{r coral_AIC_table}
+# Construct AIC table
+aic_table_coral = aictab(models_coral, models_coral_names, digits=4)
+aic_table_coral
+```
+
+
+Table 2. AICc results for 5 models of mean sponge counts near Guana Island, British Virgin Islands where K is the number of parameters in the model.
+```{r sponge_AIC_table}
+# Construct AIC table
+aic_table_sponge = aictab(models_sponge, models_sponge_names, digits=4)
+aic_table_sponge
+```
+
+
+Table 3. Model estimates for the Site x Year model for mean percent cover of coral near Guana Island, British Virgin Islands. The multiple $R^{2}$ value is `r summary(model.siteyear)$r.squared`.
+```{r coral_model_table}
+summary(model.siteyear)$coefficients[,]
+```
+
+
+Table 4. Model estimates for the Site x Year model for mean sponge count near Guana Island, British Virgin Islands. The multiple $R^{2}$ value is `r summary(smodel.siteyear)$r.squared`.
+```{r sponge_model_table}
+summary(smodel.siteyear)$coefficients[,]
+```
+
+
+## List of Figures
+
+```{r time_plots}
+figure1_top
+figure1_bottom
+```
+
+Figure 1. Changes over time for mean count of sponges (top panel) and mean percent cover of coral (bottom panel) near Guana Island, British Virgin Islands.
+
+
+```{r site_plots}
+figure2_top
+figure2_bottom
+```
+
+Figure 2. Differences among sites for mean count of sponges (top panel) and mean percent cover of coral (bottom panel) near Guana Island, British Virgin Islands.
+
+
+```{r coral_prediction_plots}
+# Combine 4 plots that show how the CORAL models compare to the null model
+plot1 <- ggplot(Corals.long.means.pred, aes(x = Year, y = Year.Model, color="")) +
+  labs(color = "") + 
+  scale_color_manual(labels = c("Pooled Sites"), values = "red") +
+  geom_line(size = 1) + geom_line(aes(x = Year, y = Null.Model), color = "black", linetype = 3, size = 1) +
+  scale_y_continuous("Total Mean Percent Coral Cover", limits = c(0, 2.7)) +
+  ggtitle("(A) Year Model")
+
+plot2 <- ggplot(Corals.long.means.pred, aes(x = Year, y = Site.Model, color = Site)) +
+  labs(color = "") + 
+  geom_line(size = 1) + geom_line(aes(x = Year, y = Null.Model),  color = "black", linetype = 3, size = 1) +
+  scale_y_continuous("Total Mean Percent Coral Cover", limits = c(0, 2.7)) +
+  ggtitle("(B) Site Model")
+
+plot3 <- ggplot(Corals.long.means.pred, aes(x = Year, y = Site.Year.Model, color = Site)) +
+  labs(color = "") + 
+  geom_line(size = 1) + geom_line(aes(x = Year, y = Null.Model), color = "black", linetype = 3, size = 1) +
+  scale_y_continuous("Total Mean Percent Coral Cover", limits = c(0, 2.7)) +
+  ggtitle("(C) Site + Year Model")
+
+plot4 <- ggplot(Corals.long.means.pred, aes(x = Year, y = Site.Year.Model.1, color = Site)) +
+  labs(color = "") + 
+  geom_line(size = 1) + geom_line(aes(x = Year, y = Null.Model), color = "black", linetype = 3, size = 1) +
+  scale_y_continuous("Total Mean Percent Coral Cover", limits = c(0, 2.7)) +
+  ggtitle("(D) Site * Year Model")
+grid.arrange(plot1, plot2, plot3, plot4, ncol=2, nrow=2)
+```
+
+Figure 3.  Model predictions for the Year model (panel A), Site model (panel B), Site+Year model (panel C), and the Site x Year model (panel D) for mean percent cover of coral near Guana Island, British Virgin Islands. The dashed line in all panels represents the Null model predictions.
+
+
+```{r sponge_prediction_plots}
+# Combine 4 plots that show how the SPONGE models compare to the null model
+plot1 <- ggplot(Sponges.long.means.pred, aes(x = Year, y = Year.Model, color="")) +
+  labs(color = "") + 
+  scale_color_manual(labels = c("Pooled Sites"), values = "red") +
+  geom_line(size = 1) + geom_line(aes(x = Year, y = Null.Model), color = "black", linetype = 3, size = 1) +
+  scale_y_continuous("Total Mean Sponge Counts", limits = c(0.3, 1.3)) +
+  ggtitle("(A) Year Model")
+
+plot2 <- ggplot(Sponges.long.means.pred, aes(x = Year, y = Site.Model, color = Site)) +
+  labs(color = "") + 
+  geom_line(size = 1) + geom_line(aes(x = Year, y = Null.Model),  color = "black", linetype = 3, size = 1) +
+  scale_y_continuous("Total Mean Sponge Counts", limits = c(0.3, 1.3)) +
+  ggtitle("(B) Site Model")
+
+plot3 <- ggplot(Sponges.long.means.pred, aes(x = Year, y = Site.Year.Model, color = Site)) +
+  labs(color = "") + 
+  geom_line(size = 1) + geom_line(aes(x = Year, y = Null.Model), color = "black", linetype = 3, size = 1) +
+  scale_y_continuous("Total Mean Sponge Counts", limits = c(0.3, 1.3)) +
+  ggtitle("(C) Site + Year Model")
+
+plot4 <- ggplot(Sponges.long.means.pred, aes(x = Year, y = Site.Year.Model.1, color = Site)) +
+  labs(color = "") + 
+  geom_line(size = 1) + geom_line(aes(x = Year, y = Null.Model), color = "black", linetype = 3, size = 1) +
+  scale_y_continuous("Total Mean Sponge Counts", limits = c(0.3, 1.3)) +
+  ggtitle("(D) Site * Year Model")
+grid.arrange(plot1, plot2, plot3, plot4, ncol=2, nrow=2)
+```
+
+Figure 4.  Model predictions for the Year model (panel A), Site model (panel B), Site+Year model (panel C), and the Site x Year model (panel D) for mean counts of sponges near Guana Island, British Virgin Islands. The dashed line in all panels represents the Null model predictions.
+
