@@ -16,4 +16,4 @@ Benthic_Analysis.Rmd: File that uses the code drafted in the Raw_Data.R file to 
 
 Evaluating the effects of space and time on sponge and coral communities in the British Virgin Islands.html: File that is produced by knitting the Benthic_Analysis.Rmd. This is the output of the analysis in the form of an academic report. When this file is created, the folder with the same name is also produced.
 
-/Evaluating the effects of space and time on sponge and coral communities in the British Virgin Islands: Folder that contains a file ____. This folder is produced when the html file of the same name is produced.
+/Evaluating the effects of space and time on sponge and coral communities in the British Virgin Islands: Folder that contains a file MathJax.js.download. This folder is automatically produced when the html file of the same name is produced.
